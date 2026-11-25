@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Unity WebGL Player | Ocular - Glaucoma ONH Simulator</title>
+    <meta name="description" content="Glaucoma optic nerve head simulator">
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+  </head>
+  <body>
+    <div id="unity-container">
+      <div id="unity-canvas-container" style="width: 100%; height: 100%;">
+        <canvas id="unity-canvas" style="width: 100%; height: 100%;"></canvas>
+      </div>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-footer">
+        <div id="unity-webgl-logo"></div>
+        <button id="entervr" value="Enter VR" disabled>VR</button>
+        <button id="enterar" value="Enter AR" disabled>AR</button>
+        <div id="unity-webxr-link">Using <a href="https://github.com/De-Panther/unity-webxr-export" target="_blank" title="WebXR Export">WebXR Export</a></div>
+        <div id="unity-build-title">Ocular - Glaucoma ONH Simulator</div>
+      </div>
+    </div>
+    <script>
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/WebGL.loader.js";
+      var config = {
+        dataUrl: buildUrl + "/WebGL.data.unityweb",
+        frameworkUrl: buildUrl + "/WebGL.framework.js.unityweb",
+        codeUrl: buildUrl + "/WebGL.wasm.unityweb",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "Ocular",
+        productName: "Ocular - Glaucoma ONH Simulator",
+        productVersion: "1.0",
+      };
+
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var canvasContainer = document.querySelector("#unity-canvas-container");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var fullscreenButton = document.querySelector("#unity-fullscreen-button");
+      var unityInstance = null;
+
+      loadingBar.style.display = "block";
+
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = () => {
+        createUnityInstance(canvas, config, (progress) => {
+          progressBarFull.style.width = 100 * progress + "%";
+        }).then((instance) => {
+          unityInstance = instance;
+          loadingBar.style.display = "none";
+          if (fullscreenButton)
+          {
+            fullscreenButton.onclick = () => {
+              unityInstance.SetFullscreen(1);
+            };
+          }
+          ocularFlushPendingImage();
+        }).catch((message) => {
+          alert(message);
+        });
+      };
+      document.body.appendChild(script);
+
+      let enterARButton = document.getElementById('enterar');
+      let enterVRButton = document.getElementById('entervr');
+
+      document.addEventListener('onARSupportedCheck', function (event) {
+        enterARButton.disabled = !event.detail.supported;
+      }, false);
+      document.addEventListener('onVRSupportedCheck', function (event) {
+        enterVRButton.disabled = !event.detail.supported;
+      }, false);
+
+      enterARButton.addEventListener('click', function (event) {
+        unityInstance.Module.WebXR.toggleAR();
+      }, false);
+      enterVRButton.addEventListener('click', function (event) {
+        unityInstance.Module.WebXR.toggleVR();
+      }, false);
+
+      // ----------------------------------------------------------------------
+      // Pushing a fundus photograph in from outside the player.
+      //
+      // NOTE: the ?image= parameter in the page address is NOT handled here. The
+      // C# side reads it off Application.absoluteURL in Start, which is strictly
+      // more reliable -- doing it from JavaScript means racing Unity's own
+      // initialisation, and a SendMessage that lands a moment too early hits
+      // nothing at all and fails silently. Reading the address twice would also
+      // import the same image twice.
+      //
+      // What this is for is the SECOND image onward. Calling in here swaps the
+      // eye without reloading the page, and reloading would mean fetching ten
+      // megabytes of wasm again.
+      //
+      //   Same page:  OcularLoadImage('https://.../fundus.jpg?token=...')
+      //   In a frame: frame.contentWindow.postMessage(
+      //                 { type: 'ocular:load', url: '...' }, '*')
+      //
+      // The target is the OpticNerveHead object, which is where the scene
+      // generator puts EyeImportController. Nothing else in the scene has a
+      // LoadFromUrl.
+      // ----------------------------------------------------------------------
+
+      var ocularPendingImage = null;
+
+      function ocularFlushPendingImage() {
+        if (!ocularPendingImage || !unityInstance) return;
+
+        var url = ocularPendingImage;
+        ocularPendingImage = null;
+        unityInstance.SendMessage('OpticNerveHead', 'LoadFromUrl', url);
+      }
+
+      window.OcularLoadImage = function (url) {
+        if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+          console.error('OcularLoadImage needs an http(s) URL.');
+          return false;
+        }
+
+        // Queued rather than dropped when the player is still downloading: a
+        // host page has no way of knowing when a 10 MB wasm has finished.
+        ocularPendingImage = url;
+        ocularFlushPendingImage();
+        return true;
+      };
+
+      // Accepting this from any origin adds no capability that the address bar
+      // does not already give anybody -- ?image= is the documented public
+      // contract of this page, so an embedder could simply set it. The scheme
+      // check above is what actually matters.
+      window.addEventListener('message', function (event) {
+        var data = event.data;
+
+        if (!data || data.type !== 'ocular:load') return;
+
+        window.OcularLoadImage(data.url);
+      }, false);
+    </script>
+  </body>
+</html>

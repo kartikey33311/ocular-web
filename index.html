@@ -65,7 +65,6 @@
               unityInstance.SetFullscreen(1);
             };
           }
-          ocularFlushPendingImage();
         }).catch((message) => {
           alert(message);
         });
@@ -87,64 +86,6 @@
       }, false);
       enterVRButton.addEventListener('click', function (event) {
         unityInstance.Module.WebXR.toggleVR();
-      }, false);
-
-      // ----------------------------------------------------------------------
-      // Pushing a fundus photograph in from outside the player.
-      //
-      // NOTE: the ?image= parameter in the page address is NOT handled here. The
-      // C# side reads it off Application.absoluteURL in Start, which is strictly
-      // more reliable -- doing it from JavaScript means racing Unity's own
-      // initialisation, and a SendMessage that lands a moment too early hits
-      // nothing at all and fails silently. Reading the address twice would also
-      // import the same image twice.
-      //
-      // What this is for is the SECOND image onward. Calling in here swaps the
-      // eye without reloading the page, and reloading would mean fetching ten
-      // megabytes of wasm again.
-      //
-      //   Same page:  OcularLoadImage('https://.../fundus.jpg?token=...')
-      //   In a frame: frame.contentWindow.postMessage(
-      //                 { type: 'ocular:load', url: '...' }, '*')
-      //
-      // The target is the OpticNerveHead object, which is where the scene
-      // generator puts EyeImportController. Nothing else in the scene has a
-      // LoadFromUrl.
-      // ----------------------------------------------------------------------
-
-      var ocularPendingImage = null;
-
-      function ocularFlushPendingImage() {
-        if (!ocularPendingImage || !unityInstance) return;
-
-        var url = ocularPendingImage;
-        ocularPendingImage = null;
-        unityInstance.SendMessage('OpticNerveHead', 'LoadFromUrl', url);
-      }
-
-      window.OcularLoadImage = function (url) {
-        if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
-          console.error('OcularLoadImage needs an http(s) URL.');
-          return false;
-        }
-
-        // Queued rather than dropped when the player is still downloading: a
-        // host page has no way of knowing when a 10 MB wasm has finished.
-        ocularPendingImage = url;
-        ocularFlushPendingImage();
-        return true;
-      };
-
-      // Accepting this from any origin adds no capability that the address bar
-      // does not already give anybody -- ?image= is the documented public
-      // contract of this page, so an embedder could simply set it. The scheme
-      // check above is what actually matters.
-      window.addEventListener('message', function (event) {
-        var data = event.data;
-
-        if (!data || data.type !== 'ocular:load') return;
-
-        window.OcularLoadImage(data.url);
       }, false);
     </script>
   </body>
